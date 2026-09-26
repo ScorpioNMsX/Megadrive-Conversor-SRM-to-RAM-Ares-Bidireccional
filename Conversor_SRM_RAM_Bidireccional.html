@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversor SRM ↔ Ares RAM by ScorpioN-MsX</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:780px;margin:40px auto;padding:0 18px;line-height:1.5}
+.card{border:1px solid #bbb;border-radius:16px;padding:24px}
+button,input{font-size:1rem;margin-top:12px}
+button{padding:10px 16px;cursor:pointer}
+#msg{white-space:pre-wrap;margin-top:16px}
+code{background:#eee;padding:2px 5px;border-radius:5px}
+small{display:block;margin-top:18px;color:#555}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>SRM ↔ Ares RAM by ScorpioN-MsX</h1>
+<p><b>Save Game - Mega Drive</b></p>
+<p>Selecciona un <code>.srm</code> o un <code>.ram</code>. El conversor detectará la extensión y hará la conversión inversa correspondiente.</p>
+<input id="file" type="file" accept=".srm,.ram,application/octet-stream">
+<br>
+<button id="convert">Convertir</button>
+<div id="msg"></div>
+<small>Procesamiento local. No se suben archivos.</small>
+</div>
+<script>
+const PAYLOAD = 256;
+const RAM_SIZE = 8192;
+const msg = document.getElementById('msg');
+
+document.getElementById('convert').onclick = async () => {
+  const f = document.getElementById('file').files[0];
+  if (!f) { msg.textContent = 'Selecciona un archivo .srm o .ram.'; return; }
+
+  const raw = new Uint8Array(await f.arrayBuffer());
+  const name = f.name.toLowerCase();
+  let out, outName;
+
+  if (name.endsWith('.srm')) {
+    let data;
+
+    // Formato intercalado observado: FF en posiciones pares.
+    let interleaved = raw.length >= 2 && raw.length % 2 === 0;
+    if (interleaved) {
+      for (let i = 0; i < raw.length; i += 2) {
+        if (raw[i] !== 0xFF) { interleaved = false; break; }
+      }
+    }
+
+    if (interleaved) {
+      data = new Uint8Array(raw.length / 2);
+      for (let i = 0, j = 0; i < raw.length; i += 2, j++) data[j] = raw[i + 1];
+    } else {
+      data = raw;
+    }
+
+    if (data.length > RAM_SIZE) {
+      msg.textContent = `Error: ${data.length} bytes útiles; máximo ${RAM_SIZE}.`;
+      return;
+    }
+
+    out = new Uint8Array(RAM_SIZE);
+    out.fill(0xFF);
+    out.set(data, 0);
+    outName = f.name.replace(/\.srm$/i, '') + '.ram';
+
+  } else if (name.endsWith('.ram')) {
+    if (raw.length < PAYLOAD) {
+      msg.textContent = `Error: el .ram debe tener al menos ${PAYLOAD} bytes.`;
+      return;
+    }
+
+    out = new Uint8Array(PAYLOAD * 2);
+    for (let i = 0; i < PAYLOAD; i++) {
+      out[i * 2] = 0xFF;
+      out[i * 2 + 1] = raw[i];
+    }
+    outName = f.name.replace(/\.ram$/i, '') + '.srm';
+
+  } else {
+    msg.textContent = 'La extensión debe ser .srm o .ram.';
+    return;
+  }
+
+  const blob = new Blob([out], {type:'application/octet-stream'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = outName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+
+  msg.textContent =
+    `Conversión terminada.\nEntrada: ${raw.length} bytes\nSalida: ${out.length} bytes\nArchivo: ${outName}`;
+};
+</script>
+</body>
+</html>
