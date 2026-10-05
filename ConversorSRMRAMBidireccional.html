@@ -3,97 +3,161 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conversor SRM ↔ RAM (Ares Emulator) by ScorpioN-MsX</title>
+<title>Mega Drive Conversor SRM ↔ RAM ↔ SaveRAM by ScorpioN-MsX</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:780px;margin:40px auto;padding:0 18px;line-height:1.5}
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:820px;margin:38px auto;padding:0 18px;line-height:1.45}
 .card{border:1px solid #bbb;border-radius:16px;padding:24px}
-button,input{font-size:1rem;margin-top:12px}
-button{padding:10px 16px;cursor:pointer}
-#msg{white-space:pre-wrap;margin-top:16px}
+h1{font-size:1.6rem;margin-top:0}
+input,button{font-size:1rem;margin-top:12px}
+button{padding:10px 14px;margin-right:8px;cursor:pointer}
+#msg{white-space:pre-wrap;margin-top:18px;padding:12px;background:#f4f4f4;border-radius:10px;min-height:42px}
 code{background:#eee;padding:2px 5px;border-radius:5px}
-small{display:block;margin-top:18px;color:#555}
+.note{font-size:.92rem;color:#555}
 </style>
 </head>
 <body>
 <div class="card">
-<h1>SRM ↔ RAM (Ares Emulator) by ScorpioN-MsX</h1>
-<p><b>Save Game - Mega Drive</b></p>
-<p>Selecciona un <code>.srm</code> o un <code>.ram</code>. El conversor detectará la extensión y hará la conversión inversa correspondiente.</p>
-<input id="file" type="file" accept=".srm,.ram,application/octet-stream">
-<br>
-<button id="convert">Convertir</button>
-<div id="msg"></div>
-<small>Procesamiento local. No se suben archivos.</small>
+<h1>Mega Drive Conversor SRM ↔ RAM ↔ SaveRAM</h1>
+<h1>By  ScorpioN-MsX</h1>
+<p>Conversor entre <code>.srm</code>, Ares <code>.ram</code> y BizHawk <code>.SaveRAM</code>.</p>
+
+<input id="file" type="file" accept=".srm,.ram,.SaveRAM,application/octet-stream">
+
+<div>
+  <button onclick="convertTo('ram')">→ Ares .ram</button>
+  <button onclick="convertTo('srm')">→ .srm</button>
+  <button onclick="convertTo('saveram')">→ BizHawk .SaveRAM</button>
 </div>
+
+<div id="msg">Selecciona un archivo.</div>
+
+<p class="note">
+Formatos usados para Mega Drive:
+Ares <code>.ram</code> = 8192 bytes compactos;
+<code>.SaveRAM</code> = 16384 bytes <code>FF,dato</code>;
+<code>.srm</code> = 512 bytes con los primeros 256 bytes útiles en patrón <code>FF,dato</code>.
+</p>
+<p class="note">Todo se procesa localmente en el navegador.</p>
+</div>
+
 <script>
-const PAYLOAD = 256;
-const RAM_SIZE = 8192;
+const PAYLOAD = 8192;
+const SRM_PAYLOAD = 256;
+const SAVERAM_SIZE = PAYLOAD * 2;
 const msg = document.getElementById('msg');
 
-document.getElementById('convert').onclick = async () => {
-  const f = document.getElementById('file').files[0];
-  if (!f) { msg.textContent = 'Selecciona un archivo .srm o .ram.'; return; }
+function baseName(name) {
+  return name.replace(/\.saveram$/i,'').replace(/\.srm$/i,'').replace(/\.ram$/i,'');
+}
 
-  const raw = new Uint8Array(await f.arrayBuffer());
-  const name = f.name.toLowerCase();
-  let out, outName;
+function parsePayload(raw, name) {
+  const lower = name.toLowerCase();
 
-  if (name.endsWith('.srm')) {
-    let data;
+  if (lower.endsWith('.saveram')) {
+    if (raw.length !== SAVERAM_SIZE) {
+      throw new Error(`El .SaveRAM debe medir ${SAVERAM_SIZE} bytes.`);
+    }
+    const p = new Uint8Array(PAYLOAD);
+    for (let i=0;i<PAYLOAD;i++) p[i] = raw[i*2+1];
+    return p;
+  }
 
-    // Formato intercalado observado: FF en posiciones pares.
-    let interleaved = raw.length >= 2 && raw.length % 2 === 0;
+  if (lower.endsWith('.ram')) {
+    if (raw.length < PAYLOAD) {
+      throw new Error(`El .ram debe tener al menos ${PAYLOAD} bytes.`);
+    }
+    return raw.slice(0, PAYLOAD);
+  }
+
+  if (lower.endsWith('.srm')) {
+    let interleaved = raw.length % 2 === 0;
     if (interleaved) {
-      for (let i = 0; i < raw.length; i += 2) {
+      for (let i=0;i<raw.length;i+=2) {
         if (raw[i] !== 0xFF) { interleaved = false; break; }
       }
     }
 
+    let data;
     if (interleaved) {
       data = new Uint8Array(raw.length / 2);
-      for (let i = 0, j = 0; i < raw.length; i += 2, j++) data[j] = raw[i + 1];
+      for (let i=0,j=0;i<raw.length;i+=2,j++) data[j] = raw[i+1];
     } else {
       data = raw;
     }
 
-    if (data.length > RAM_SIZE) {
-      msg.textContent = `Error: ${data.length} bytes útiles; máximo ${RAM_SIZE}.`;
-      return;
+    if (data.length > PAYLOAD) {
+      throw new Error(`El .srm contiene ${data.length} bytes útiles; máximo ${PAYLOAD}.`);
     }
 
-    out = new Uint8Array(RAM_SIZE);
-    out.fill(0xFF);
-    out.set(data, 0);
-    outName = f.name.replace(/\.srm$/i, '') + '.ram';
+    const p = new Uint8Array(PAYLOAD);
+    p.fill(0xFF);
+    p.set(data, 0);
+    return p;
+  }
 
-  } else if (name.endsWith('.ram')) {
-    if (raw.length < PAYLOAD) {
-      msg.textContent = `Error: el .ram debe tener al menos ${PAYLOAD} bytes.`;
-      return;
-    }
+  throw new Error('La extensión debe ser .srm, .ram o .SaveRAM.');
+}
 
-    out = new Uint8Array(PAYLOAD * 2);
-    for (let i = 0; i < PAYLOAD; i++) {
-      out[i * 2] = 0xFF;
-      out[i * 2 + 1] = raw[i];
-    }
-    outName = f.name.replace(/\.ram$/i, '') + '.srm';
+function makeRam(payload) {
+  return payload.slice(0, PAYLOAD);
+}
 
-  } else {
-    msg.textContent = 'La extensión debe ser .srm o .ram.';
+function makeSaveRam(payload) {
+  const out = new Uint8Array(SAVERAM_SIZE);
+  for (let i=0;i<PAYLOAD;i++) {
+    out[i*2] = 0xFF;
+    out[i*2+1] = payload[i];
+  }
+  return out;
+}
+
+function makeSrm(payload) {
+  const out = new Uint8Array(SRM_PAYLOAD * 2);
+  for (let i=0;i<SRM_PAYLOAD;i++) {
+    out[i*2] = 0xFF;
+    out[i*2+1] = payload[i];
+  }
+  return out;
+}
+
+async function convertTo(target) {
+  const f = document.getElementById('file').files[0];
+  if (!f) {
+    msg.textContent = 'Selecciona primero un archivo.';
     return;
   }
 
-  const blob = new Blob([out], {type:'application/octet-stream'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = outName;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  try {
+    const raw = new Uint8Array(await f.arrayBuffer());
+    const payload = parsePayload(raw, f.name);
 
-  msg.textContent =
-    `Conversión terminada.\nEntrada: ${raw.length} bytes\nSalida: ${out.length} bytes\nArchivo: ${outName}`;
-};
+    let out, ext;
+    if (target === 'ram') {
+      out = makeRam(payload);
+      ext = '.ram';
+    } else if (target === 'srm') {
+      out = makeSrm(payload);
+      ext = '.srm';
+    } else {
+      out = makeSaveRam(payload);
+      ext = '.SaveRAM';
+    }
+
+    const blob = new Blob([out], {type:'application/octet-stream'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = baseName(f.name) + ext;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+
+    msg.textContent =
+      `Conversión terminada.\n` +
+      `Entrada: ${f.name} (${raw.length} bytes)\n` +
+      `Salida: ${a.download} (${out.length} bytes)`;
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+}
 </script>
 </body>
 </html>
